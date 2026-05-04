@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx react-native *)",
+      "Bash(gradlew.bat app:installDebug -PreactNativeDevServerPort=8081)",
+      "Bash(./gradlew app:installDebug -PreactNativeDevServerPort=8081)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)"
+    ]
+  }
+}
