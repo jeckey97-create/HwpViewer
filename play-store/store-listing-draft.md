@@ -10,7 +10,7 @@ Open and view HWP/HWPX documents on Android.
 
 ## Full Description
 
-HwpViewer helps you open HWP and HWPX document files shared from other apps or selected on your Android device.
+HwpViewer helps you open HWP and HWPX document files shared from other apps or selected on your Android device, with a single-line top banner ad layout designed to keep the document area usable.
 
 Key features:
 
@@ -18,13 +18,15 @@ Key features:
 - View converted PDF output when a secure conversion service is configured
 - Render supported HWPX content directly in the app
 - No account registration
+- A single top banner ad, with no pop-up or full-screen interstitial ads
 - No broad storage permission request in release builds
 
 Privacy and security:
 
 - The app only accesses files that you choose to open or share with it
 - Release builds require HTTPS for document conversion traffic
-- The app does not include ads or analytics in the current build
+- The app may include a small single-line top banner ad
+- Document files are not used for ad targeting
 
 Important:
 

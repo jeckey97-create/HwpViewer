@@ -2,13 +2,15 @@
 
 Effective date: May 5, 2026
 
-HwpViewer is a document viewer for opening HWP and HWPX files on Android.
+HwpViewer is a document viewer for opening HWP and HWPX files on Android. The app may show a single small banner advertisement at the top of the screen to support development while keeping the document viewing experience minimally interrupted. The app does not use pop-up ads or full-screen interstitial ads.
 
 ## Information We Process
 
 HwpViewer may process document files that you choose to open or share with the app. These files may include HWP or HWPX documents and their file names.
 
 The app does not require account registration and does not ask you to provide a name, email address, phone number, contacts, location, photos, camera, microphone, or payment information.
+
+If ads are enabled, the advertising SDK may process advertising-related data such as device identifiers, IP address, app interactions, and diagnostic information for advertising delivery, analytics, and fraud prevention.
 
 ## How Documents Are Used
 
@@ -23,6 +25,8 @@ We do not sell user data.
 We do not share documents with advertisers, analytics providers, data brokers, or unrelated third parties.
 
 If document conversion is enabled, documents are transmitted only to the configured conversion server for app functionality.
+
+If ads are enabled, advertising-related data may be processed by the advertising SDK provider to show and measure ads. Document files are not provided to the advertising SDK for ad targeting.
 
 ## Data Retention
 
