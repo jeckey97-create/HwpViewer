@@ -142,7 +142,6 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
     return (
       <View style={styles.center}>
         <Text style={styles.loadingText}>문서를 여는 중입니다...</Text>
-        {__DEV__ ? <Text style={styles.debugStepText}>{debugStep}</Text> : null}
       </View>
     );
   }
@@ -162,7 +161,6 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>열기 실패</Text>
         <Text style={styles.errorMsg}>{error}</Text>
-        {__DEV__ ? <Text style={styles.debugStepText}>{debugStep}</Text> : null}
         <TouchableOpacity style={styles.retryBtn} onPress={loadFile}>
           <Text style={styles.retryText}>다시 시도</Text>
         </TouchableOpacity>
@@ -173,17 +171,10 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
   if (viewerMode === 'pdf' && pdfUrl) {
     return (
       <View style={styles.container}>
-        <Header
-          title={fileName}
-          viewerMode={viewerMode}
-          debugStep={debugStep}
-        />
+        <Header title={fileName} />
         {pdfLoadFailed ? (
           <View style={styles.center}>
             <Text style={styles.errorMsg}>문서를 열 수 없습니다.</Text>
-            {__DEV__ ? (
-              <Text style={styles.debugStepText}>{debugStep}</Text>
-            ) : null}
             <TouchableOpacity style={styles.retryBtn} onPress={loadFile}>
               <Text style={styles.retryText}>다시 시도</Text>
             </TouchableOpacity>
@@ -232,9 +223,6 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
             <Text style={styles.webviewLoadingText}>
               문서를 여는 중입니다...
             </Text>
-            {__DEV__ ? (
-              <Text style={styles.debugStepText}>{debugStep}</Text>
-            ) : null}
           </View>
         ) : null}
       </View>
@@ -245,41 +233,23 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
     return <View style={styles.center} />;
   }
 
-  return renderHwpxFallback(doc, debugStep);
+  return renderHwpxFallback(doc);
 }
 
-function Header({
-  title,
-  viewerMode,
-  debugStep,
-}: {
-  title: string;
-  viewerMode: 'pdf' | 'hwpx';
-  debugStep?: string;
-}): React.JSX.Element {
+function Header({ title }: { title: string }): React.JSX.Element {
   return (
     <View style={styles.header}>
       <Text style={styles.headerTitle} numberOfLines={1}>
         {title}
       </Text>
-      {/* DEV ONLY: remove this block when the viewer mode check is no longer needed. */}
-      {__DEV__ ? (
-        <Text style={styles.devModeText}>{getViewerModeLabel(viewerMode)}</Text>
-      ) : null}
-      {__DEV__ && debugStep ? (
-        <Text style={styles.devStepHeaderText}>{debugStep}</Text>
-      ) : null}
     </View>
   );
 }
 
-function renderHwpxFallback(
-  doc: ParsedDocument,
-  debugStep: string,
-): React.JSX.Element {
+function renderHwpxFallback(doc: ParsedDocument): React.JSX.Element {
   return (
     <View style={styles.container}>
-      <Header title={doc.title} viewerMode="hwpx" debugStep={debugStep} />
+      <Header title={doc.title} />
       <WebView
         source={{ html: doc.html }}
         style={styles.webview}
@@ -321,10 +291,6 @@ function isHwpxDocument(fileUri: string): boolean {
 
 function isAndroidContentUri(fileUri: string): boolean {
   return Platform.OS === 'android' && fileUri.startsWith('content://');
-}
-
-function getViewerModeLabel(viewerMode: 'pdf' | 'hwpx'): string {
-  return viewerMode === 'pdf' ? 'PDF 원본보기 모드' : 'HWPX 직접보기 모드';
 }
 
 function getOriginalFileName(fileUri: string): string {
@@ -374,17 +340,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', flex: 1 },
-  devModeText: {
-    color: '#ffd166',
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 12,
-  },
-  devStepHeaderText: {
-    color: '#ffd166',
-    fontSize: 11,
-    marginLeft: 8,
-  },
   webview: { flex: 1, backgroundColor: '#fff' },
   hiddenWebview: { display: 'none' },
   webviewLoading: {
@@ -398,12 +353,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   webviewLoadingText: { color: '#aaa', fontSize: 14 },
-  debugStepText: {
-    color: '#ffd166',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 8,
-  },
 });
 
 function withTimeout<T>(
