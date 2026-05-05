@@ -3,6 +3,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { WebView } from 'react-native-webview';
 import { parseFile, ParsedDocument } from '../utils/hwpxParser';
 import { convertDocumentToPdf } from '../utils/pdfConverter';
+import { debugError, debugLog, debugWarn } from '../utils/logger';
 
 interface Props {
   fileUri: string;
@@ -16,7 +17,7 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
   // DEV ONLY: remove debugStep after the Android viewer loading issue is diagnosed.
-  const [debugStep, setDebugStep] = useState('파일 감지됨');
+  const [_debugStep, setDebugStep] = useState('파일 감지됨');
   const [error, setError] = useState<string | null>(null);
   const pdfWebViewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -61,28 +62,15 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
     try {
       setDebugStep('PDF 변환 시작');
       if (isHwpxFile) {
-        console.log(
-          '[ViewerScreen] .hwpx open: convertDocumentToPdf(fileUri) will be called.',
-          {
-            fileUri,
-          },
-        );
+        debugLog('[ViewerScreen] .hwpx open: conversion will be called');
       }
-      console.log('[ViewerScreen] convertDocumentToPdf: before call', {
-        fileUri,
-      });
+      debugLog('[ViewerScreen] convertDocumentToPdf: before call');
       const converted = await convertDocumentToPdf(fileUri, {
         timeoutMs: 60000,
         onDebugStep: setDebugStep,
       });
-      console.log('[ViewerScreen] convertDocumentToPdf: success', { fileUri });
-      console.log(
-        '[ViewerScreen] convertDocumentToPdf: pdfUrl',
-        converted.pdfUrl,
-      );
-      console.log('[ViewerScreen] server response pdfUrl received', {
-        pdfUrl: converted.pdfUrl,
-      });
+      debugLog('[ViewerScreen] convertDocumentToPdf: success');
+      debugLog('[ViewerScreen] server response pdfUrl received');
       setDebugStep('pdfUrl 수신');
       setPdfUrl(converted.pdfUrl);
       setPdfLoading(true);
@@ -94,26 +82,19 @@ export default function ViewerScreen({ fileUri }: Props): React.JSX.Element {
       });
     } catch (e: any) {
       const failureReason = getErrorMessage(e);
-      console.error(
-        `[ViewerScreen] convertDocumentToPdf failed message=${failureReason}`,
-      );
-      console.error(
-        `[ViewerScreen] convertDocumentToPdf failed name=${
-          e?.name || 'UnknownError'
-        }`,
-      );
+      debugError('[ViewerScreen] convertDocumentToPdf failed', {
+        message: failureReason,
+        name: e?.name || 'UnknownError',
+      });
       if (e?.stack) {
-        console.error(
-          `[ViewerScreen] convertDocumentToPdf failed stack=${e.stack}`,
-        );
+        debugError('[ViewerScreen] convertDocumentToPdf failed stack', {
+          stack: e.stack,
+        });
       }
-      console.error(
-        `[ViewerScreen] convertDocumentToPdf failed fileUri=${fileUri}`,
-      );
       setDebugStep(`API 실패: ${failureReason}`);
-      console.warn(
-        `[ViewerScreen] Falling back to HWPX direct rendering because PDF conversion failed. reason=${failureReason} fileUri=${fileUri}`,
-      );
+      debugWarn('[ViewerScreen] Falling back to HWPX direct rendering', {
+        reason: failureReason,
+      });
       try {
         const parsed = await withTimeout(
           parseFile(fileUri),

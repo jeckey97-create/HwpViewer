@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Linking } from 'react-native';
 import ViewerScreen from './src/screens/ViewerScreen';
+import { debugError } from './src/utils/logger';
 
 interface AppState {
   filePath: string | null;
@@ -39,7 +40,7 @@ export default function App(): React.JSX.Element {
           handleFileUrl(initialUrl);
         }
       } catch (error) {
-        console.error('[App] initial URL failed', error);
+        debugError('[App] initial URL failed', { error });
         if (mounted) {
           setState({ filePath: null, loading: false });
         }

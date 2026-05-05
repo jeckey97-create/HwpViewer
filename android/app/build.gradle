@@ -57,7 +57,20 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
+
+def getReleaseSigningValue = { name ->
+    if (project.hasProperty(name)) {
+        return project.property(name)
+    }
+    return System.getenv(name)
+}
+
+def releaseStoreFile = getReleaseSigningValue("HWPVIEWER_UPLOAD_STORE_FILE")
+def releaseStorePassword = getReleaseSigningValue("HWPVIEWER_UPLOAD_STORE_PASSWORD")
+def releaseKeyAlias = getReleaseSigningValue("HWPVIEWER_UPLOAD_KEY_ALIAS")
+def releaseKeyPassword = getReleaseSigningValue("HWPVIEWER_UPLOAD_KEY_PASSWORD")
+def hasReleaseSigningConfig = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -84,6 +97,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
         versionName "1.0.1"
+        manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
     signingConfigs {
         debug {
@@ -92,18 +106,47 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseSigningConfig) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigningConfig) {
+                signingConfig signingConfigs.release
+            }
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseUploadTasks = [
+        ":app:bundleRelease",
+        ":app:assembleRelease",
+        ":app:packageRelease",
+    ]
+    def needsReleaseSigning = taskGraph.allTasks.any { task ->
+        releaseUploadTasks.contains(task.path)
+    }
+
+    if (needsReleaseSigning && !hasReleaseSigningConfig) {
+        throw new GradleException(
+            "Release signing is not configured. Set HWPVIEWER_UPLOAD_STORE_FILE, " +
+            "HWPVIEWER_UPLOAD_STORE_PASSWORD, HWPVIEWER_UPLOAD_KEY_ALIAS, and " +
+            "HWPVIEWER_UPLOAD_KEY_PASSWORD in local Gradle properties or environment variables."
+        )
     }
 }
 

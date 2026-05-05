@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { debugError, debugLog } from './logger';
 
 export interface PdfConversionResult {
   pdfUrl: string;
@@ -25,16 +26,11 @@ const MOCK_PDF_URL =
 const CONVERT_TO_PDF_PATH = '/api/documents/convert-to-pdf';
 const DEFAULT_CONVERSION_TIMEOUT_MS = 60000;
 
-// Development server address notes:
-// - Android physical device with adb reverse: http://127.0.0.1:3000
-// - Android emulator: http://10.0.2.2:3000
-// - iOS simulator: http://127.0.0.1:3000
-// - Physical device: http://<your-computer-LAN-IP>:3000
-// Override with API_BASE_URL or DOCUMENT_CONVERSION_API_BASE_URL.
-// React Native does not load .env files by default; use a bundler env plugin,
-// native build config, or edit DEFAULT_API_BASE_URL for a physical device.
-const DEFAULT_API_BASE_URL =
-  Platform.OS === 'android' ? 'http://127.0.0.1:3000' : 'http://127.0.0.1:3000';
+const DEFAULT_API_BASE_URL = __DEV__
+  ? Platform.OS === 'android'
+    ? 'http://127.0.0.1:3000'
+    : 'http://127.0.0.1:3000'
+  : '';
 
 export const API_BASE_URL =
   getEnv('API_BASE_URL') ||
@@ -57,6 +53,8 @@ export async function convertDocumentToPdf(
     return { pdfUrl: MOCK_PDF_URL };
   }
 
+  validateApiBaseUrl(API_BASE_URL);
+
   const uploadFile = {
     uri: fileUri,
     name: fileInfo.fileName,
@@ -65,21 +63,21 @@ export async function convertDocumentToPdf(
   const formData = new FormData();
   formData.append('file', uploadFile as any);
 
-  console.log(`[pdfConverter] API_BASE_URL=${API_BASE_URL}`);
-  console.log(`[pdfConverter] healthUrl=${healthUrl}`);
-  console.log(`[pdfConverter] requestUrl=${requestUrl}`);
-  console.log(`[pdfConverter] fileUri=${fileUri}`);
-  console.log(`[pdfConverter] FormData file.uri=${uploadFile.uri}`);
-  console.log(`[pdfConverter] FormData file.name=${uploadFile.name}`);
-  console.log(`[pdfConverter] FormData file.type=${uploadFile.type}`);
+  debugLog('[pdfConverter] request prepared', {
+    apiBaseUrl: API_BASE_URL,
+    healthUrl,
+    requestUrl,
+    fileName: uploadFile.name,
+    fileType: uploadFile.type,
+  });
 
   let response: Response;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
-    options.onDebugStep?.('서버 연결 확인');
+    options.onDebugStep?.('Checking server connection');
     await checkHealth(healthUrl, timeoutMs);
-    options.onDebugStep?.('서버 연결 성공');
-    options.onDebugStep?.('API 요청 시작');
+    options.onDebugStep?.('Server connection succeeded');
+    options.onDebugStep?.('Starting API request');
     response = await Promise.race([
       fetch(requestUrl, {
         method: 'POST',
@@ -92,17 +90,15 @@ export async function convertDocumentToPdf(
         );
       }),
     ]);
-    options.onDebugStep?.('API 응답 수신');
+    options.onDebugStep?.('Received API response');
   } catch (error: any) {
-    if (error?.message?.startsWith('서버 연결 실패')) {
+    if (error?.message?.startsWith('Server connection failed')) {
       throw error;
     }
-    console.error(
-      `[pdfConverter] PDF conversion request failed after health success message=${
-        error?.message || 'Unknown error'
-      }`,
-    );
-    throw new Error(`PDF 변환 실패: ${error?.message || ''}`.trim());
+    debugError('[pdfConverter] PDF conversion request failed after health success', {
+      message: error?.message || 'Unknown error',
+    });
+    throw new Error(`PDF conversion failed: ${error?.message || ''}`.trim());
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -113,19 +109,18 @@ export async function convertDocumentToPdf(
   try {
     responseText = await response.text();
   } catch (error: any) {
-    console.error(
-      `[pdfConverter] response text read failed message=${
-        error?.message || 'Unknown error'
-      }`,
-    );
+    debugError('[pdfConverter] response text read failed', {
+      message: error?.message || 'Unknown error',
+    });
   }
 
   if (!response.ok) {
-    console.error(
-      `[pdfConverter] HTTP error status=${response.status} responseText=${responseText}`,
-    );
+    debugError('[pdfConverter] HTTP error', {
+      status: response.status,
+      responseText,
+    });
     throw new Error(
-      `PDF 변환 실패: ${response.status} ${
+      `PDF conversion failed: ${response.status} ${
         extractServerError(responseText) ||
         'Document conversion request failed.'
       }`.trim(),
@@ -138,16 +133,15 @@ export async function convertDocumentToPdf(
       error?: string;
     };
   } catch (error: any) {
-    console.error(
-      `[pdfConverter] response JSON parse failed message=${
-        error?.message || 'Unknown error'
-      } responseText=${responseText}`,
-    );
+    debugError('[pdfConverter] response JSON parse failed', {
+      message: error?.message || 'Unknown error',
+      responseText,
+    });
   }
 
   if (!data.pdfUrl || typeof data.pdfUrl !== 'string') {
-    console.error('[pdfConverter] pdfUrl 없음');
-    throw new Error('pdfUrl 없음');
+    debugError('[pdfConverter] pdfUrl missing');
+    throw new Error('pdfUrl missing');
   }
 
   return { pdfUrl: data.pdfUrl };
@@ -190,7 +184,7 @@ async function checkHealth(
   healthUrl: string,
   timeoutMs: number,
 ): Promise<void> {
-  console.log(`[pdfConverter] health check start url=${healthUrl}`);
+  debugLog('[pdfConverter] health check start', { healthUrl });
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   try {
@@ -198,26 +192,27 @@ async function checkHealth(
       fetch(healthUrl),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error('서버 연결 실패: health timeout')),
+          () => reject(new Error('Server connection failed: health timeout')),
           timeoutMs,
         );
       }),
     ]);
     const responseText = await response.text();
-    console.log(
-      `[pdfConverter] health response status=${response.status} text=${responseText}`,
-    );
+    debugLog('[pdfConverter] health response', {
+      status: response.status,
+      responseText,
+    });
 
     if (!response.ok) {
-      throw new Error(`서버 연결 실패: health ${response.status}`);
+      throw new Error(`Server connection failed: health ${response.status}`);
     }
   } catch (error: any) {
     const message = error?.message || 'Network request failed';
-    console.error(`[pdfConverter] health failed message=${message}`);
+    debugError('[pdfConverter] health failed', { message });
     throw new Error(
-      message.startsWith('서버 연결 실패')
+      message.startsWith('Server connection failed')
         ? message
-        : `서버 연결 실패: ${message}`,
+        : `Server connection failed: ${message}`,
     );
   } finally {
     if (timeoutId) {
@@ -237,6 +232,34 @@ function extractServerError(responseText: string): string {
   } catch {
     return responseText;
   }
+}
+
+function validateApiBaseUrl(apiBaseUrl: string): void {
+  if (!apiBaseUrl) {
+    throw new Error('Document conversion API is not configured.');
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(apiBaseUrl);
+  } catch {
+    throw new Error('Document conversion API URL is invalid.');
+  }
+
+  if (parsedUrl.protocol === 'https:') {
+    return;
+  }
+
+  const isLocalhost =
+    parsedUrl.hostname === 'localhost' ||
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === '10.0.2.2';
+
+  if (__DEV__ && parsedUrl.protocol === 'http:' && isLocalhost) {
+    return;
+  }
+
+  throw new Error('Document conversion API must use HTTPS in release builds.');
 }
 
 function getEnv(name: string): string {
