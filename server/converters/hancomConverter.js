@@ -24,8 +24,6 @@ async function convertWithHancom(inputPath, convertedDir) {
 
   await fs.rm(outputPath, { force: true });
   console.log('[convert] converter=hancomConverter');
-  console.log(`[convert] Hancom input=${inputPath}`);
-  console.log(`[convert] Hancom expected PDF path=${outputPath}`);
 
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -47,12 +45,12 @@ async function convertWithHancom(inputPath, convertedDir) {
         maxBuffer: 1024 * 1024,
       },
     );
-    console.log(`[convert] Hancom stdout=${stdout || ''}`);
-    console.log(`[convert] Hancom stderr=${stderr || ''}`);
+    logConverterOutput('Hancom stdout', stdout);
+    logConverterOutput('Hancom stderr', stderr);
     console.log('[convert] Hancom exit code=0');
   } catch (error) {
-    console.log(`[convert] Hancom stdout=${error.stdout || ''}`);
-    console.log(`[convert] Hancom stderr=${error.stderr || ''}`);
+    logConverterOutput('Hancom stdout', error.stdout);
+    logConverterOutput('Hancom stderr', error.stderr);
     console.log(`[convert] Hancom exit code=${error.code ?? 'unknown'}`);
     const conversionError = new Error(
       '원본보기 변환에 실패하여 기본보기로 엽니다.',
@@ -72,6 +70,18 @@ async function convertWithHancom(inputPath, convertedDir) {
   const stat = await fs.stat(outputPath);
   console.log(`[convert] Hancom PDF exists=true size=${stat.size}`);
   return outputPath;
+}
+
+function logConverterOutput(label, output) {
+  if (!output) {
+    return;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.log(`[convert] ${label} length=${String(output).length}`);
+  } else {
+    console.log(`[convert] ${label}=${output}`);
+  }
 }
 
 async function pathExists(filePath) {

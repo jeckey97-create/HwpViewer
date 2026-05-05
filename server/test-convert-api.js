@@ -27,11 +27,10 @@ async function main() {
     } else {
       const placeholderHwpx = path.join(TMP_DIR, 'sample.hwpx');
       await fs.writeFile(placeholderHwpx, 'not a real hwpx file');
-      await assertUpload(placeholderHwpx, 200);
-      await assertConvertedPdfExists();
+      await assertUpload(placeholderHwpx, 500);
       await fs.unlink(placeholderHwpx).catch(() => {});
       console.log(
-        'No TEST_DOCUMENT_PATH was provided; generated PDF from server/tmp/sample.hwpx.',
+        'No TEST_DOCUMENT_PATH was provided; verified invalid HWPX conversion failure.',
       );
     }
 

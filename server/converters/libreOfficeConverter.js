@@ -32,7 +32,6 @@ async function convertWithLibreOffice(inputPath, context) {
 
   const sofficePath = await resolveLibreOfficePath();
   console.log(`[convert] converter=libreOfficeConverter`);
-  console.log(`[convert] LibreOffice path=${sofficePath}`);
   await logExistingLibreOfficeProcesses();
   await logInputMagicNumber(inputPath);
 
@@ -43,14 +42,10 @@ async function convertWithLibreOffice(inputPath, context) {
   const outputPath = path.join(convertedDir, outputFileName);
   const userProfileDir = path.join(tmpDir, `lo-profile-${cryptoRandomId()}`);
   const userInstallation = pathToFileUrl(userProfileDir);
-  console.log(`[convert] expected PDF path=${outputPath}`);
-  console.log(`[convert] LibreOffice user profile=${userProfileDir}`);
-  console.log(`[convert] LibreOffice UserInstallation=${userInstallation}`);
 
   await fs.rm(outputPath, { force: true });
   await fs.mkdir(userProfileDir, { recursive: true });
   const beforeFiles = await listOutputFiles(convertedDir);
-  console.log(`[convert] output files before=${formatFileList(beforeFiles)}`);
 
   const baseArgs = [
     `-env:UserInstallation=${userInstallation}`,
@@ -76,26 +71,23 @@ async function convertWithLibreOffice(inputPath, context) {
   let generatedPdfPath = null;
   for (const args of convertArgsCandidates) {
     const startedAt = Date.now();
-    console.log(
-      `[convert] LibreOffice conversion start args=${args.join(' ')}`,
-    );
+    console.log('[convert] LibreOffice conversion start');
     try {
       const { stdout, stderr } = await execFileAsync(sofficePath, args, {
         windowsHide: true,
         timeout: 120000,
       });
-      console.log(`[convert] LibreOffice stdout=${stdout || ''}`);
-      console.log(`[convert] LibreOffice stderr=${stderr || ''}`);
+      logConverterOutput('LibreOffice stdout', stdout);
+      logConverterOutput('LibreOffice stderr', stderr);
       console.log('[convert] LibreOffice exit code=0');
     } catch (error) {
-      console.log(`[convert] LibreOffice stdout=${error.stdout || ''}`);
-      console.log(`[convert] LibreOffice stderr=${error.stderr || ''}`);
+      logConverterOutput('LibreOffice stdout', error.stdout);
+      logConverterOutput('LibreOffice stderr', error.stderr);
       console.log(`[convert] LibreOffice exit code=${error.code ?? 'unknown'}`);
       lastConversionError = error;
     }
 
     const afterFiles = await listOutputFiles(convertedDir);
-    console.log(`[convert] output files after=${formatFileList(afterFiles)}`);
     generatedPdfPath =
       findGeneratedPdf(afterFiles, beforeFiles, startedAt) ||
       ((await pathExists(outputPath)) ? outputPath : null);
@@ -108,13 +100,9 @@ async function convertWithLibreOffice(inputPath, context) {
   const finalFiles = await listOutputFiles(convertedDir);
   const pdfExists = Boolean(generatedPdfPath);
   console.log(`[convert] PDF exists=${pdfExists}`);
-  console.log(`[convert] output files final=${formatFileList(finalFiles)}`);
   if (!pdfExists) {
     console.log(
       '[convert] GUI opens this file, but headless conversion failed',
-    );
-    console.log(
-      `[convert] output files on failure=${formatFileList(finalFiles)}`,
     );
     if (lastConversionError) {
       console.log(
@@ -129,8 +117,8 @@ async function convertWithLibreOffice(inputPath, context) {
     throw error;
   }
 
-  // TODO: Add expiry cleanup for converted PDFs because documents can be private.
-  console.log(`[convert] selected PDF path=${generatedPdfPath}`);
+  await fs.rm(userProfileDir, { recursive: true, force: true }).catch(() => {});
+  console.log('[convert] selected PDF path ready');
   return generatedPdfPath;
 }
 
@@ -143,9 +131,13 @@ async function logInputMagicNumber(inputPath) {
     const hex = bytes.toString('hex');
     const ascii = bytes.toString('ascii').replace(/[^\x20-\x7e]/g, '.');
     const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
-    console.log(`[convert] input magic hex=${hex}`);
-    console.log(`[convert] input magic ascii=${ascii}`);
-    console.log(`[convert] input looks like ZIP/HWPX=${isZip}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[convert] input magic hex=${hex}`);
+      console.log(`[convert] input magic ascii=${ascii}`);
+      console.log(`[convert] input looks like ZIP/HWPX=${isZip}`);
+    } else {
+      console.log(`[convert] input looks like ZIP/HWPX=${isZip}`);
+    }
   } finally {
     await file.close();
   }
@@ -169,9 +161,6 @@ async function logExistingLibreOfficeProcesses() {
       console.log(
         '[convert] Existing soffice.exe/soffice.bin process detected. This can affect headless conversion on Windows; using isolated UserInstallation profile for this conversion.',
       );
-      console.log(
-        `[convert] Existing LibreOffice processes=${lines.join(' | ')}`,
-      );
     } else {
       console.log('[convert] Existing LibreOffice processes=(none)');
     }
@@ -181,6 +170,18 @@ async function logExistingLibreOfficeProcesses() {
         error.message || error
       }`,
     );
+  }
+}
+
+function logConverterOutput(label, output) {
+  if (!output) {
+    return;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.log(`[convert] ${label} length=${String(output).length}`);
+  } else {
+    console.log(`[convert] ${label}=${output}`);
   }
 }
 

@@ -13,16 +13,35 @@ const UPLOAD_DIR = path.join(TMP_DIR, 'uploads');
 const DEBUG_DIR = path.join(TMP_DIR, 'debug');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CONVERTED_DIR = path.join(PUBLIC_DIR, 'converted');
+const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 50 * 1024 * 1024);
+const CONVERTED_FILE_TTL_MS = Number(
+  process.env.CONVERTED_FILE_TTL_MS || 30 * 60 * 1000,
+);
+const CLEANUP_INTERVAL_MS = Number(
+  process.env.CLEANUP_INTERVAL_MS || 5 * 60 * 1000,
+);
+const RATE_LIMIT_WINDOW_MS = Number(
+  process.env.RATE_LIMIT_WINDOW_MS || 60 * 1000,
+);
+const RATE_LIMIT_MAX_REQUESTS = Number(
+  process.env.RATE_LIMIT_MAX_REQUESTS || 12,
+);
+const MAX_VIEWER_FILE_URL_LENGTH = 2048;
 
 const allowedExtensions = new Set(['.hwp', '.hwpx']);
+const rateLimitBuckets = new Map();
 const documentConverter = createDocumentConverter({
   tmpDir: TMP_DIR,
   convertedDir: CONVERTED_DIR,
   cryptoRandomId,
 });
 
+app.set('trust proxy', true);
+
+app.use(securityHeaders);
+
 app.use((req, _res, next) => {
-  console.log(`[server] ${req.method} ${req.path}`);
+  console.log(`[server] ${req.method} ${req.path} ip=${getClientIp(req)}`);
   next();
 });
 
@@ -83,18 +102,31 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 50 * 1024 * 1024,
+    fileSize: MAX_UPLOAD_BYTES,
     files: 1,
   },
 });
 
 async function convertHwpToPdf(inputPath) {
   await ensureConvertedDir();
-  console.log(`[convert] selected converter=${documentConverter.name}`);
+  logInfo('[convert] selected converter', { converter: documentConverter.name });
   return documentConverter.convertToPdf(inputPath);
 }
 
-app.use('/converted', express.static(CONVERTED_DIR));
+app.use(
+  '/converted',
+  express.static(CONVERTED_DIR, {
+    dotfiles: 'deny',
+    etag: false,
+    fallthrough: false,
+    index: false,
+    maxAge: 0,
+    setHeaders: res => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  }),
+);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
@@ -107,6 +139,10 @@ app.get('/viewer', (req, res) => {
     return res.status(400).send('Missing PDF file URL.');
   }
 
+  if (!isAllowedViewerFileUrl(req, fileUrl)) {
+    return res.status(400).send('Invalid PDF file URL.');
+  }
+
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   return res.send(createPdfViewerHtml(fileUrl));
@@ -114,8 +150,9 @@ app.get('/viewer', (req, res) => {
 
 app.post(
   '/api/documents/convert-to-pdf',
+  rateLimit,
   (_req, _res, next) => {
-    console.log('[convert] request received');
+    logInfo('[convert] request received');
     next();
   },
   upload.single('file'),
@@ -128,37 +165,29 @@ app.post(
         return res.status(400).json({ error: 'A document file is required.' });
       }
 
-      const { originalName, extension } = validateHwpFile(req.file);
-      console.log(`[convert] uploaded file name=${originalName}`);
-      console.log(`[convert] uploaded file extension=${extension}`);
-      console.log(`[convert] uploaded file size=${req.file.size}`);
-      console.log(`[convert] uploaded temp path=${uploadedPath}`);
+      const { extension } = validateHwpFile(req.file);
+      logInfo('[convert] uploaded file accepted', {
+        extension,
+        size: req.file.size,
+      });
       const pdfPath = await convertHwpToPdf(uploadedPath);
       const pdfUrl = `${req.protocol}://${req.get(
         'host',
       )}/converted/${encodeURIComponent(path.basename(pdfPath))}`;
-      console.log(`[convert] response pdfUrl=${pdfUrl}`);
+      logInfo('[convert] conversion succeeded');
       return res.json({ pdfUrl });
     } catch (error) {
       conversionFailed = true;
       if (uploadedPath) {
         await copyFailedUploadForDebug(uploadedPath).catch(copyError => {
-          console.error(
-            `[convert] failed upload debug copy error=${
-              copyError.message || copyError
-            }`,
-          );
+          logError('[convert] failed upload debug copy error', copyError);
         });
       }
       return next(error);
     } finally {
       if (uploadedPath) {
-        // Delete uploads promptly because documents can contain private data.
-        // TODO: Add lifecycle cleanup for orphaned temp files on process restart.
         if (conversionFailed && isDevelopmentMode()) {
-          console.log(
-            `[convert] development mode keeps failed temp upload=${uploadedPath}`,
-          );
+          logInfo('[convert] development mode keeps failed temp upload');
         } else {
           await fs.unlink(uploadedPath).catch(() => {});
         }
@@ -171,15 +200,13 @@ app.use((error, _req, res, _next) => {
   const statusCode = error.statusCode || 500;
   const message = getErrorMessage(error, statusCode);
 
-  console.error(`[convert] error message=${error.message || 'Unknown error'}`);
-  if (error.stack) {
-    console.error(`[convert] error stack=${error.stack}`);
-  }
+  logError('[convert] request failed', error, { statusCode });
 
   res.status(statusCode).json({ error: message });
 });
 
 if (require.main === module) {
+  startCleanupLoop();
   app.listen(PORT, () => {
     console.log(
       `Document conversion API listening on http://localhost:${PORT}`,
@@ -188,7 +215,7 @@ if (require.main === module) {
 }
 
 function cryptoRandomId() {
-  return Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function copyFailedUploadForDebug(uploadedPath) {
@@ -199,7 +226,7 @@ async function copyFailedUploadForDebug(uploadedPath) {
   await ensureDebugDir();
   const debugPath = path.join(DEBUG_DIR, path.basename(uploadedPath));
   await fs.copyFile(uploadedPath, debugPath);
-  console.log(`[convert] failed upload copied to debug=${debugPath}`);
+  logInfo('[convert] failed upload copied to debug');
 }
 
 function isDevelopmentMode() {
@@ -214,6 +241,133 @@ function getErrorMessage(error, statusCode) {
   }
 
   return error.message || 'Document conversion failed.';
+}
+
+function securityHeaders(_req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; script-src https://cdnjs.cloudflare.com; worker-src https://cdnjs.cloudflare.com blob:; connect-src 'self' https:; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  );
+  next();
+}
+
+function rateLimit(req, res, next) {
+  const now = Date.now();
+  const key = getClientIp(req);
+  const bucket = rateLimitBuckets.get(key);
+
+  if (!bucket || now >= bucket.resetAt) {
+    rateLimitBuckets.set(key, {
+      count: 1,
+      resetAt: now + RATE_LIMIT_WINDOW_MS,
+    });
+    return next();
+  }
+
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT_MAX_REQUESTS) {
+    return res.status(429).json({ error: 'Too many requests.' });
+  }
+
+  return next();
+}
+
+function getClientIp(req) {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function isAllowedViewerFileUrl(req, fileUrl) {
+  if (fileUrl.length > MAX_VIEWER_FILE_URL_LENGTH) {
+    return false;
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(fileUrl);
+  } catch {
+    return false;
+  }
+
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    return false;
+  }
+
+  const requestHost = req.get('host');
+  if (!requestHost) {
+    return false;
+  }
+
+  return parsedUrl.host === requestHost && parsedUrl.pathname.startsWith('/converted/');
+}
+
+function startCleanupLoop() {
+  cleanupExpiredFiles().catch(error => {
+    logError('[cleanup] initial cleanup failed', error);
+  });
+  setInterval(() => {
+    cleanupExpiredFiles().catch(error => {
+      logError('[cleanup] cleanup failed', error);
+    });
+  }, CLEANUP_INTERVAL_MS).unref();
+}
+
+async function cleanupExpiredFiles() {
+  const now = Date.now();
+  await removeExpiredFiles(CONVERTED_DIR, now - CONVERTED_FILE_TTL_MS, ['.pdf']);
+  await removeExpiredFiles(UPLOAD_DIR, now - CONVERTED_FILE_TTL_MS, ['.hwp', '.hwpx']);
+}
+
+async function removeExpiredFiles(directory, olderThanMs, extensions) {
+  const entries = await fs.readdir(directory).catch(error => {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  });
+
+  await Promise.all(
+    entries.map(async entry => {
+      const filePath = path.join(directory, entry);
+      const stat = await fs.stat(filePath).catch(() => null);
+      if (!stat?.isFile()) {
+        return;
+      }
+
+      if (!extensions.includes(path.extname(entry).toLowerCase())) {
+        return;
+      }
+
+      if (stat.mtimeMs > olderThanMs) {
+        return;
+      }
+
+      await fs.unlink(filePath).catch(() => {});
+    }),
+  );
+}
+
+function logInfo(message, details) {
+  if (details) {
+    console.log(`${message} ${JSON.stringify(details)}`);
+  } else {
+    console.log(message);
+  }
+}
+
+function logError(message, error, details = {}) {
+  const safeError = {
+    message: error?.message || String(error || 'Unknown error'),
+    code: error?.code,
+    ...details,
+  };
+  console.error(`${message} ${JSON.stringify(safeError)}`);
+  if (isDevelopmentMode() && error?.stack) {
+    console.error(error.stack);
+  }
 }
 
 function createPdfViewerHtml(fileUrl) {
