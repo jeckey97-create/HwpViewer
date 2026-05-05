@@ -59,9 +59,18 @@ react {
  */
 def enableProguardInReleaseBuilds = true
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
 def getReleaseSigningValue = { name ->
     if (project.hasProperty(name)) {
         return project.property(name)
+    }
+    if (localProperties.getProperty(name)) {
+        return localProperties.getProperty(name)
     }
     return System.getenv(name)
 }
