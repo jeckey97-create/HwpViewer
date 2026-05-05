@@ -25,12 +25,13 @@ const MOCK_PDF_URL =
 
 const CONVERT_TO_PDF_PATH = '/api/documents/convert-to-pdf';
 const DEFAULT_CONVERSION_TIMEOUT_MS = 60000;
+const PERSONAL_LAN_API_BASE_URL = 'http://192.168.45.13:3000';
 
 const DEFAULT_API_BASE_URL = __DEV__
   ? Platform.OS === 'android'
-    ? 'http://127.0.0.1:3000'
+    ? PERSONAL_LAN_API_BASE_URL
     : 'http://127.0.0.1:3000'
-  : '';
+  : PERSONAL_LAN_API_BASE_URL;
 
 export const API_BASE_URL =
   getEnv('API_BASE_URL') ||
@@ -259,7 +260,33 @@ function validateApiBaseUrl(apiBaseUrl: string): void {
     return;
   }
 
+  if (parsedUrl.protocol === 'http:' && isPrivateLanHost(parsedUrl.hostname)) {
+    return;
+  }
+
   throw new Error('Document conversion API must use HTTPS in release builds.');
+}
+
+function isPrivateLanHost(hostname: string): boolean {
+  if (hostname === 'localhost') {
+    return true;
+  }
+
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    return true;
+  }
+
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    return true;
+  }
+
+  const private172Match = hostname.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (private172Match) {
+    const secondOctet = Number(private172Match[1]);
+    return secondOctet >= 16 && secondOctet <= 31;
+  }
+
+  return false;
 }
 
 function getEnv(name: string): string {

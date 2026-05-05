@@ -97,7 +97,6 @@ async function convertWithLibreOffice(inputPath, context) {
     }
   }
 
-  const finalFiles = await listOutputFiles(convertedDir);
   const pdfExists = Boolean(generatedPdfPath);
   console.log(`[convert] PDF exists=${pdfExists}`);
   if (!pdfExists) {
@@ -206,19 +205,6 @@ async function listOutputFiles(directory) {
   }
 
   return files.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function formatFileList(files) {
-  if (!files.length) {
-    return '(empty)';
-  }
-
-  return files
-    .map(
-      file =>
-        `${file.name} size=${file.size} mtimeMs=${Math.round(file.mtimeMs)}`,
-    )
-    .join(' | ');
 }
 
 function findGeneratedPdf(afterFiles, beforeFiles, startedAt) {
